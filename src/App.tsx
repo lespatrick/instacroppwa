@@ -9,8 +9,6 @@ import { PresetSelector } from './components/PresetSelector';
 import { BackgroundControls } from './components/BackgroundControls';
 import { ExportToolbar } from './components/ExportToolbar';
 import { ExportModalSheet } from './components/ExportModalSheet';
-import { Toast } from './components/Toast';
-import type { ToastMessage } from './components/Toast';
 import { DEFAULT_PRESET } from './engine/presets';
 import type { 
   CropState, 
@@ -43,20 +41,6 @@ import {
 type MobileMode = 'aspect' | 'background';
 
 export const App: React.FC = () => {
-  // Toast notifications
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const addToast = useCallback((type: 'error' | 'success' | 'info', text: string) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, type, text }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3500);
-  }, []);
-
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
   // PWA Integration
   const { isOffline, canInstall, triggerInstall } = usePWA();
 
@@ -157,16 +141,13 @@ export const App: React.FC = () => {
     handleDragLeave,
     handleDrop,
   } = useImageLoader({
-    onError: (msg) => addToast('error', msg),
+    onError: (msg) => console.error(msg),
     onSuccess: (metaList) => {
       const newItems = metaList.map(createPhotoItem);
       setPhotos((prev) => {
         const combined = [...prev, ...newItems];
         return combined;
       });
-      addToast('success', metaList.length === 1 
-        ? `Wczytano: ${metaList[0].name}` 
-        : `Wczytano ${metaList.length} zdjęć do serii`);
     },
   });
 
@@ -241,7 +222,6 @@ export const App: React.FC = () => {
       flipH: false,
       flipV: false,
     }));
-    addToast('info', 'Zresetowano pozycję kadru.');
   };
 
   // Open file picker to append or start fresh
@@ -263,7 +243,6 @@ export const App: React.FC = () => {
       }
       return next;
     });
-    addToast('info', 'Usunięto zdjęcie z serii.');
   };
 
   // Bulk action: apply current preset to all photos in series
@@ -276,7 +255,6 @@ export const App: React.FC = () => {
         preset: currentPreset,
       }))
     );
-    addToast('success', `Zastosowano format ${currentPreset.ratioText} do wszystkich (${photos.length}) zdjęć!`);
   };
 
   // Real-time debounced file size estimator for active photo
@@ -347,11 +325,10 @@ export const App: React.FC = () => {
       const result = await getRenderedBlob();
       if (!result) return;
 
-      const res = await saveToGalleryOrDownload(result.blob, result.filename);
-      addToast('success', res.message);
+      await saveToGalleryOrDownload(result.blob, result.filename);
       setIsExportSheetOpen(false);
     } catch (err: any) {
-      addToast('error', `Błąd zapisu: ${err.message || 'Nieznany błąd'}`);
+      console.error(err);
     } finally {
       setIsExporting(false);
     }
@@ -367,10 +344,9 @@ export const App: React.FC = () => {
       if (!result) return;
 
       downloadBlob(result.blob, result.filename);
-      addToast('success', `Pobrano plik: ${result.filename} (${formatBytes(result.blob.size)})`);
       setIsExportSheetOpen(false);
     } catch (err: any) {
-      addToast('error', `Błąd pobierania: ${err.message || 'Nieznany błąd'}`);
+      console.error(err);
     } finally {
       setIsExporting(false);
     }
@@ -389,15 +365,10 @@ export const App: React.FC = () => {
       });
 
       if (res.success) {
-        if (res.totalBytes > 0) {
-          addToast('success', `Wyeksportowano ZIP: ${res.count} zdjęć (${formatBytes(res.totalBytes)})`);
-        } else {
-          addToast('success', `Pomyślnie udostępniono ${res.count} zdjęć!`);
-        }
         setIsExportSheetOpen(false);
       }
     } catch (err: any) {
-      addToast('error', `Błąd eksportu serii: ${err.message || 'Nieznany błąd'}`);
+      console.error(err);
     } finally {
       setIsExporting(false);
       setBatchProgress(null);
@@ -411,9 +382,6 @@ export const App: React.FC = () => {
       onDrop={handleDrop}
       className="h-[100dvh] max-h-[100dvh] w-screen bg-black text-white flex flex-col font-sans overflow-hidden select-none"
     >
-      {/* Toast Notifications */}
-      <Toast toasts={toasts} onDismiss={dismissToast} />
-
       {/* iOS Navigation Bar */}
       <Header
         imageMeta={imageMeta}
