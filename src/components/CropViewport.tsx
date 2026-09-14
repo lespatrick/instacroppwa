@@ -9,7 +9,7 @@ import {
   Move
 } from 'lucide-react';
 import type { CropState, GridSettings, InstagramPreset, LoadedImageMeta } from '../engine/types';
-import { calculateTargetDimensions, renderProcessedCanvas } from '../engine/imageProcessor';
+import { calculateTargetDimensions, calculateBoundedPan, renderProcessedCanvas } from '../engine/imageProcessor';
 import { GridOverlay } from './GridOverlay';
 
 interface CropViewportProps {
@@ -44,6 +44,23 @@ export const CropViewport: React.FC<CropViewportProps> = ({
   // Compute exact pixel target dimensions
   const dimensions = calculateTargetDimensions(preset, imageMeta, cropState.rotation);
 
+  // Auto-snap function to snap image back to nearest border if out of bounds in cover mode
+  const snapToBounds = useCallback(() => {
+    if (cropState.fitMode !== 'cover' || !imageMeta.element) return;
+    onCropChange((prev) => {
+      const bounded = calculateBoundedPan(
+        prev.pan,
+        prev,
+        imageMeta.element,
+        dimensions
+      );
+      if (bounded.x !== prev.pan.x || bounded.y !== prev.pan.y) {
+        return { ...prev, pan: bounded };
+      }
+      return prev;
+    });
+  }, [cropState.fitMode, imageMeta.element, dimensions, onCropChange]);
+
   // Exact responsive pixel size for the visual box (guarantees 0-pixel mismatch between canvas & frame)
   const [displayBox, setDisplayBox] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
@@ -74,6 +91,13 @@ export const CropViewport: React.FC<CropViewportProps> = ({
       window.removeEventListener('resize', updateSize);
     };
   }, [dimensions.width, dimensions.height]);
+
+  // Snap to bounds whenever mode changes to cover, or rotation/preset changes
+  useEffect(() => {
+    if (cropState.fitMode === 'cover') {
+      snapToBounds();
+    }
+  }, [cropState.fitMode, cropState.rotation, preset.id]);
 
   // Render canvas on state change
   useEffect(() => {
@@ -114,7 +138,8 @@ export const CropViewport: React.FC<CropViewportProps> = ({
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
-  }, []);
+    snapToBounds();
+  }, [snapToBounds]);
 
   useEffect(() => {
     if (isDragging) {
@@ -127,14 +152,18 @@ export const CropViewport: React.FC<CropViewportProps> = ({
     };
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
-  // Mouse wheel zoom
+  // Mouse wheel zoom with auto-bound snap
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const zoomDelta = e.deltaY > 0 ? -0.08 : 0.08;
-    onCropChange((prev) => ({
-      ...prev,
-      zoom: Math.min(4.0, Math.max(0.5, parseFloat((prev.zoom + zoomDelta).toFixed(3)))),
-    }));
+    onCropChange((prev) => {
+      const newZoom = Math.min(4.0, Math.max(0.5, parseFloat((prev.zoom + zoomDelta).toFixed(3))));
+      const nextState = { ...prev, zoom: newZoom };
+      if (prev.fitMode === 'cover' && imageMeta.element) {
+        nextState.pan = calculateBoundedPan(nextState.pan, nextState, imageMeta.element, dimensions);
+      }
+      return nextState;
+    });
   };
 
   // Touch handlers (Drag & Pinch-to-zoom)
@@ -179,16 +208,20 @@ export const CropViewport: React.FC<CropViewportProps> = ({
       const ratio = currentDist / touchDistanceRef.current;
       const newZoom = Math.min(4.0, Math.max(0.5, touchZoomStartRef.current * ratio));
 
-      onCropChange((prev) => ({
-        ...prev,
-        zoom: parseFloat(newZoom.toFixed(3)),
-      }));
+      onCropChange((prev) => {
+        const nextState = {
+          ...prev,
+          zoom: parseFloat(newZoom.toFixed(3)),
+        };
+        return nextState;
+      });
     }
   };
 
   const handleTouchEnd = () => {
     setIsDragging(false);
     touchDistanceRef.current = null;
+    snapToBounds();
   };
 
   return (

@@ -36,6 +36,41 @@ export function calculateTargetDimensions(
 }
 
 /**
+ * Calculates constrained pan so that in Cover mode the image completely fills the frame
+ * without showing empty gaps or out-of-bounds background borders.
+ */
+export function calculateBoundedPan(
+  pan: { x: number; y: number },
+  cropState: CropState,
+  img: { naturalWidth: number; naturalHeight: number },
+  dimensions: { width: number; height: number }
+): { x: number; y: number } {
+  if (cropState.fitMode !== 'cover') {
+    return pan;
+  }
+
+  const { width: targetW, height: targetH } = dimensions;
+  const isRotated90or270 = cropState.rotation % 180 !== 0;
+  const effectiveImgW = isRotated90or270 ? img.naturalHeight : img.naturalWidth;
+  const effectiveImgH = isRotated90or270 ? img.naturalWidth : img.naturalHeight;
+
+  const baseScale = Math.max(targetW / effectiveImgW, targetH / effectiveImgH);
+  const effectiveScale = baseScale * cropState.zoom;
+
+  const currentW = effectiveImgW * effectiveScale;
+  const currentH = effectiveImgH * effectiveScale;
+
+  // Maximum allowed displacement from center before a border reveals background
+  const maxPanX = Math.max(0, (currentW - targetW) / 2);
+  const maxPanY = Math.max(0, (currentH - targetH) / 2);
+
+  const boundedX = Math.max(-maxPanX, Math.min(maxPanX, pan.x));
+  const boundedY = Math.max(-maxPanY, Math.min(maxPanY, pan.y));
+
+  return { x: boundedX, y: boundedY };
+}
+
+/**
  * Samples the dominant/average color of the image by rendering it to a miniature canvas.
  */
 export function extractDominantColor(img: HTMLImageElement): string {
