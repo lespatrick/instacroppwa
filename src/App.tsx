@@ -9,7 +9,6 @@ import { PresetSelector } from './components/PresetSelector';
 import { BackgroundControls } from './components/BackgroundControls';
 import { ExportToolbar } from './components/ExportToolbar';
 import { ExportModalSheet } from './components/ExportModalSheet';
-import { DynamicHUD } from './components/DynamicHUD';
 import { Toast } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { DEFAULT_PRESET } from './engine/presets';
@@ -414,17 +413,6 @@ export const App: React.FC = () => {
     >
       {/* Toast Notifications */}
       <Toast toasts={toasts} onDismiss={dismissToast} />
-
-      {/* Dynamic Island Capsule HUD */}
-      {imageMeta && (
-        <DynamicHUD
-          preset={preset}
-          stats={exportStats}
-          isOffline={isOffline}
-          isEstimating={exportStats.isEstimating}
-          isExporting={isExporting}
-        />
-      )}
 
       {/* iOS Navigation Bar */}
       <Header
