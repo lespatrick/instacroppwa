@@ -8,6 +8,7 @@ import { CropViewport } from './components/CropViewport';
 import { PresetSelector } from './components/PresetSelector';
 import { BackgroundControls } from './components/BackgroundControls';
 import { ExportToolbar } from './components/ExportToolbar';
+import { ExportModalSheet } from './components/ExportModalSheet';
 import { DynamicHUD } from './components/DynamicHUD';
 import { Toast } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
@@ -37,10 +38,10 @@ import {
 import { 
   Ratio, 
   Palette, 
-  SlidersHorizontal 
+  Share
 } from 'lucide-react';
 
-type MobileMode = 'aspect' | 'background' | 'export';
+type MobileMode = 'aspect' | 'background';
 
 export const App: React.FC = () => {
   // Toast notifications
@@ -102,6 +103,7 @@ export const App: React.FC = () => {
   });
 
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportSheetOpen, setIsExportSheetOpen] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Updates active photo's cropState
@@ -348,6 +350,7 @@ export const App: React.FC = () => {
 
       const res = await saveToGalleryOrDownload(result.blob, result.filename);
       addToast('success', res.message);
+      setIsExportSheetOpen(false);
     } catch (err: any) {
       addToast('error', `Błąd zapisu: ${err.message || 'Nieznany błąd'}`);
     } finally {
@@ -366,6 +369,7 @@ export const App: React.FC = () => {
 
       downloadBlob(result.blob, result.filename);
       addToast('success', `Pobrano plik: ${result.filename} (${formatBytes(result.blob.size)})`);
+      setIsExportSheetOpen(false);
     } catch (err: any) {
       addToast('error', `Błąd pobierania: ${err.message || 'Nieznany błąd'}`);
     } finally {
@@ -391,6 +395,7 @@ export const App: React.FC = () => {
         } else {
           addToast('success', `Pomyślnie udostępniono ${res.count} zdjęć!`);
         }
+        setIsExportSheetOpen(false);
       }
     } catch (err: any) {
       addToast('error', `Błąd eksportu serii: ${err.message || 'Nieznany błąd'}`);
@@ -430,7 +435,23 @@ export const App: React.FC = () => {
         onInstall={triggerInstall}
         onOpenNew={handleOpenNew}
         onResetCrop={handleResetCrop}
-        onExport={handleExportGallery}
+        onExport={() => setIsExportSheetOpen(true)}
+      />
+
+      {/* Modern iOS Bottom Sheet Modal for Export on Mobile/Tablet/Desktop */}
+      <ExportModalSheet
+        isOpen={isExportSheetOpen}
+        onClose={() => setIsExportSheetOpen(false)}
+        settings={exportSettings}
+        onSettingsChange={setExportSettings}
+        stats={exportStats}
+        preset={preset}
+        totalPhotos={photos.length}
+        isExporting={isExporting}
+        batchProgress={batchProgress}
+        onExportGallery={handleExportGallery}
+        onExportDownload={handleExportDownload}
+        onExportBatch={handleExportBatch}
       />
 
       {/* Hidden Global File Input */}
@@ -524,21 +545,6 @@ export const App: React.FC = () => {
                   onCropChange={updateActiveCropState}
                 />
               )}
-
-              {activeMobileMode === 'export' && (
-                <ExportToolbar
-                  settings={exportSettings}
-                  onSettingsChange={setExportSettings}
-                  stats={exportStats}
-                  preset={preset}
-                  totalPhotos={photos.length}
-                  isExporting={isExporting}
-                  batchProgress={batchProgress}
-                  onExportGallery={handleExportGallery}
-                  onExportDownload={handleExportDownload}
-                  onExportBatch={handleExportBatch}
-                />
-              )}
             </div>
 
             {/* iOS Bottom Tool Selector Bar */}
@@ -566,14 +572,12 @@ export const App: React.FC = () => {
               </button>
 
               <button
-                onClick={() => setActiveMobileMode('export')}
-                className={`flex flex-col items-center gap-0.5 transition-all active:scale-90 ${
-                  activeMobileMode === 'export' ? 'text-ios-yellow' : 'text-ios-secondaryLabel hover:text-white'
-                }`}
+                onClick={() => setIsExportSheetOpen(true)}
+                className="flex flex-col items-center gap-0.5 transition-all active:scale-90 text-ios-yellow hover:brightness-110"
               >
-                <SlidersHorizontal className="w-4 h-4" />
-                <span className="text-[10px] font-medium tracking-tight">Eksport</span>
-                <span className={`w-1 h-1 rounded-full ${activeMobileMode === 'export' ? 'bg-ios-yellow' : 'bg-transparent'}`}></span>
+                <Share className="w-4 h-4" />
+                <span className="text-[10px] font-semibold tracking-tight">Eksport</span>
+                <span className="w-1 h-1 rounded-full bg-ios-yellow"></span>
               </button>
             </div>
           </div>
