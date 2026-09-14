@@ -32,6 +32,11 @@ import {
   saveToGalleryOrDownload,
   exportBatchPhotos
 } from './engine/exportHelper';
+import {
+  saveSessionToDB,
+  restoreSessionFromDB,
+  clearSessionDB
+} from './engine/storageHelper';
 import { 
   Ratio, 
   Palette, 
@@ -47,6 +52,32 @@ export const App: React.FC = () => {
   // Multi-photo series state
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
+  const [isRestored, setIsRestored] = useState<boolean>(false);
+
+  // Restore session from IndexedDB on initial mount (e.g. after iOS Safari background purge)
+  useEffect(() => {
+    let isMounted = true;
+    restoreSessionFromDB().then((savedSession) => {
+      if (isMounted && savedSession && savedSession.photos.length > 0) {
+        setPhotos(savedSession.photos);
+        setActivePhotoIndex(savedSession.activeIndex || 0);
+      }
+      if (isMounted) setIsRestored(true);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Auto-persist session to IndexedDB whenever photos or active index change
+  useEffect(() => {
+    if (!isRestored) return;
+    if (photos.length > 0) {
+      saveSessionToDB(photos, activePhotoIndex);
+    } else {
+      clearSessionDB();
+    }
+  }, [photos, activePhotoIndex, isRestored]);
 
   // Active photo shortcut
   const activePhoto: PhotoItem | undefined = photos[activePhotoIndex];
