@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Loader2, Image as ImageIcon } from 'lucide-react';
+import { Download, Loader2, Image as ImageIcon, Archive } from 'lucide-react';
 import type { ExportSettings, ExportStats, InstagramPreset } from '../engine/types';
 import { canSaveToGallery } from '../engine/exportHelper';
 
@@ -8,9 +8,12 @@ interface ExportToolbarProps {
   onSettingsChange: (updater: (prev: ExportSettings) => ExportSettings) => void;
   stats: ExportStats;
   preset: InstagramPreset;
+  totalPhotos?: number;
   isExporting: boolean;
+  batchProgress?: { current: number; total: number } | null;
   onExportGallery: () => void;
   onExportDownload?: () => void;
+  onExportBatch?: () => void;
 }
 
 export const ExportToolbar: React.FC<ExportToolbarProps> = ({
@@ -18,9 +21,12 @@ export const ExportToolbar: React.FC<ExportToolbarProps> = ({
   onSettingsChange,
   stats,
   preset,
+  totalPhotos = 1,
   isExporting,
+  batchProgress,
   onExportGallery,
   onExportDownload,
+  onExportBatch,
 }) => {
   const supportsGalleryShare = typeof window !== 'undefined' && canSaveToGallery();
 
@@ -115,7 +121,7 @@ export const ExportToolbar: React.FC<ExportToolbarProps> = ({
 
         {/* Row 4: Estimated File Size */}
         <div className="flex items-center justify-between p-3 bg-white/[0.02]">
-          <span className="text-[12px] text-ios-secondaryLabel">Szacowany rozmiar</span>
+          <span className="text-[12px] text-ios-secondaryLabel">Szacowany rozmiar (bieżące)</span>
           <span className="font-mono text-xs font-semibold text-white">
             {stats.sizeFormatted}
           </span>
@@ -123,14 +129,14 @@ export const ExportToolbar: React.FC<ExportToolbarProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex flex-col gap-1.5 pt-1">
-        {/* Primary Save Button (Gallery Share or Download) */}
+      <div className="flex flex-col gap-2 pt-1">
+        {/* Save Current Photo */}
         <button
           onClick={onExportGallery}
           disabled={isExporting}
           className="w-full py-3 px-5 rounded-2xl bg-white text-black font-semibold text-[14px] hover:bg-white/90 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-ios-card disabled:opacity-50"
         >
-          {isExporting ? (
+          {isExporting && !batchProgress ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
               <span>Przetwarzanie...</span>
@@ -138,25 +144,46 @@ export const ExportToolbar: React.FC<ExportToolbarProps> = ({
           ) : supportsGalleryShare ? (
             <>
               <ImageIcon className="w-4 h-4 text-ios-blue stroke-[2.5]" />
-              <span>Zapisz w Zdjęciach / Galerii ({preset.ratioText})</span>
+              <span>Zapisz w Zdjęciach ({preset.ratioText})</span>
             </>
           ) : (
             <>
               <Download className="w-4 h-4 stroke-[2.5]" />
-              <span>Zapisz plik ({preset.ratioText})</span>
+              <span>Pobierz plik ({preset.ratioText})</span>
             </>
           )}
         </button>
 
-        {/* Secondary Direct Download */}
+        {/* Batch Export All Photos (if multiple photos in session) */}
+        {totalPhotos > 1 && onExportBatch && (
+          <button
+            onClick={onExportBatch}
+            disabled={isExporting}
+            className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-ig-yellow via-ig-pink to-ig-purple text-white font-bold text-[13px] shadow-glow-ig hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {batchProgress ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Przetwarzanie serii: {batchProgress.current} z {batchProgress.total}...</span>
+              </>
+            ) : (
+              <>
+                <Archive className="w-4 h-4" />
+                <span>Eksportuj całą serię ({totalPhotos} zdjęć w ZIP)</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* Direct Download of single file fallback */}
         {supportsGalleryShare && onExportDownload && (
           <button
             onClick={onExportDownload}
             disabled={isExporting}
-            className="w-full py-2 px-4 rounded-xl text-xs font-medium text-ios-secondaryLabel hover:text-white transition-colors flex items-center justify-center gap-1.5 active:scale-95"
+            className="w-full py-1.5 px-4 rounded-xl text-xs font-medium text-ios-secondaryLabel hover:text-white transition-colors flex items-center justify-center gap-1.5 active:scale-95"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Pobierz bezpośrednio jako plik</span>
+            <span>Pobierz bieżące jako plik</span>
           </button>
         )}
       </div>

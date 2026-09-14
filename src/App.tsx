@@ -3,6 +3,7 @@ import { useImageLoader } from './hooks/useImageLoader';
 import { usePWA } from './hooks/usePWA';
 import { Header } from './components/Header';
 import { DropZone } from './components/DropZone';
+import { PhotoFilmstrip } from './components/PhotoFilmstrip';
 import { CropViewport } from './components/CropViewport';
 import { PresetSelector } from './components/PresetSelector';
 import { BackgroundControls } from './components/BackgroundControls';
@@ -16,7 +17,9 @@ import type {
   ExportSettings, 
   ExportStats, 
   GridSettings, 
-  InstagramPreset 
+  InstagramPreset,
+  PhotoItem,
+  LoadedImageMeta
 } from './engine/types';
 import { 
   calculateTargetDimensions, 
@@ -28,7 +31,8 @@ import {
   downloadBlob, 
   formatBytes, 
   generateExportFilename,
-  saveToGalleryOrDownload 
+  saveToGalleryOrDownload,
+  exportBatchPhotos
 } from './engine/exportHelper';
 import { 
   Ratio, 
@@ -56,16 +60,15 @@ export const App: React.FC = () => {
   // PWA Integration
   const { isOffline, canInstall, triggerInstall } = usePWA();
 
-  // Preset & Editor State
-  const [preset, setPreset] = useState<InstagramPreset>(DEFAULT_PRESET);
-  const [activeMobileMode, setActiveMobileMode] = useState<MobileMode>('aspect');
+  // Multi-photo series state
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
 
-  const [gridSettings, setGridSettings] = useState<GridSettings>({
-    showRuleOfThirds: false,
-    showProfileGridPreview: false,
-  });
-
-  const [cropState, setCropState] = useState<CropState>({
+  // Active photo shortcut
+  const activePhoto: PhotoItem | undefined = photos[activePhotoIndex];
+  const imageMeta = activePhoto?.meta || null;
+  const preset = activePhoto?.preset || DEFAULT_PRESET;
+  const cropState = activePhoto?.cropState || {
     zoom: 1.0,
     pan: { x: 0, y: 0 },
     rotation: 0,
@@ -75,6 +78,13 @@ export const App: React.FC = () => {
     bgColor: '#000000',
     bgStyle: 'black',
     dominantColor: '#18181b',
+  };
+
+  const [activeMobileMode, setActiveMobileMode] = useState<MobileMode>('aspect');
+
+  const [gridSettings, setGridSettings] = useState<GridSettings>({
+    showRuleOfThirds: false,
+    showProfileGridPreview: false,
   });
 
   const [exportSettings, setExportSettings] = useState<ExportSettings>({
@@ -92,30 +102,70 @@ export const App: React.FC = () => {
   });
 
   const [isExporting, setIsExporting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
 
-  // Image Loading Hook
-  const {
-    imageMeta,
-    isDragging,
-    processFile,
-    handleDragOver,
-    handleDragLeave,
-    handleDrop,
-  } = useImageLoader({
-    onError: (msg) => addToast('error', msg),
-    onSuccess: (meta) => {
-      const dominant = extractDominantColor(meta.element);
-      setCropState((prev) => ({
-        ...prev,
+  // Updates active photo's cropState
+  const updateActiveCropState = (updater: CropState | ((prev: CropState) => CropState)) => {
+    setPhotos((prev) => {
+      if (!prev[activePhotoIndex]) return prev;
+      const nextPhotos = [...prev];
+      const current = nextPhotos[activePhotoIndex];
+      const nextCrop = typeof updater === 'function' ? updater(current.cropState) : updater;
+      nextPhotos[activePhotoIndex] = { ...current, cropState: nextCrop };
+      return nextPhotos;
+    });
+  };
+
+  // Updates active photo's preset
+  const handleSelectPreset = (newPreset: InstagramPreset) => {
+    setPhotos((prev) => {
+      if (!prev[activePhotoIndex]) return prev;
+      const nextPhotos = [...prev];
+      nextPhotos[activePhotoIndex] = { ...nextPhotos[activePhotoIndex], preset: newPreset };
+      return nextPhotos;
+    });
+  };
+
+  // Helper to build a PhotoItem from loaded meta
+  const createPhotoItem = (meta: LoadedImageMeta): PhotoItem => {
+    const dominant = extractDominantColor(meta.element);
+    return {
+      id: Math.random().toString(36).substring(2, 11),
+      meta,
+      preset: DEFAULT_PRESET,
+      cropState: {
         zoom: 1.0,
         pan: { x: 0, y: 0 },
         rotation: 0,
         flipH: false,
         flipV: false,
+        fitMode: 'cover',
+        bgColor: '#000000',
+        bgStyle: 'black',
         dominantColor: dominant,
-        bgColor: prev.bgStyle === 'dominant' ? dominant : prev.bgColor,
-      }));
-      addToast('success', `Wczytano: ${meta.name}`);
+      },
+    };
+  };
+
+  // Image Loading Hook
+  const {
+    isDragging,
+    processFiles,
+    revokeUrl,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+  } = useImageLoader({
+    onError: (msg) => addToast('error', msg),
+    onSuccess: (metaList) => {
+      const newItems = metaList.map(createPhotoItem);
+      setPhotos((prev) => {
+        const combined = [...prev, ...newItems];
+        return combined;
+      });
+      addToast('success', metaList.length === 1 
+        ? `Wczytano: ${metaList[0].name}` 
+        : `Wczytano ${metaList.length} zdjęć do serii`);
     },
   });
 
@@ -175,14 +225,14 @@ export const App: React.FC = () => {
     canvas.toBlob((blob) => {
       if (blob) {
         const file = new File([blob], 'demo_sunset_landscape.jpg', { type: 'image/jpeg' });
-        processFile(file);
+        processFiles([file]);
       }
     }, 'image/jpeg', 0.95);
-  }, [processFile]);
+  }, [processFiles]);
 
-  // Reset crop transforms
+  // Reset crop transforms for active photo
   const handleResetCrop = () => {
-    setCropState((prev) => ({
+    updateActiveCropState((prev) => ({
       ...prev,
       zoom: 1.0,
       pan: { x: 0, y: 0 },
@@ -193,17 +243,46 @@ export const App: React.FC = () => {
     addToast('info', 'Zresetowano pozycję kadru.');
   };
 
-  // Open file picker
+  // Open file picker to append or start fresh
   const handleOpenNew = () => {
     const input = document.getElementById('file-upload-start') as HTMLInputElement;
     if (input) input.click();
   };
 
-  // Real-time debounced file size estimator
+  // Remove photo from batch
+  const handleRemovePhoto = (index: number) => {
+    setPhotos((prev) => {
+      const target = prev[index];
+      if (target) revokeUrl(target.meta.src);
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) {
+        setActivePhotoIndex(0);
+      } else if (activePhotoIndex >= next.length) {
+        setActivePhotoIndex(next.length - 1);
+      }
+      return next;
+    });
+    addToast('info', 'Usunięto zdjęcie z serii.');
+  };
+
+  // Bulk action: apply current preset to all photos in series
+  const handleApplyPresetToAll = () => {
+    if (!activePhoto) return;
+    const currentPreset = activePhoto.preset;
+    setPhotos((prev) =>
+      prev.map((item) => ({
+        ...item,
+        preset: currentPreset,
+      }))
+    );
+    addToast('success', `Zastosowano format ${currentPreset.ratioText} do wszystkich (${photos.length}) zdjęć!`);
+  };
+
+  // Real-time debounced file size estimator for active photo
   const estimateTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!imageMeta) return;
+    if (!imageMeta || !activePhoto) return;
 
     if (estimateTimerRef.current) {
       window.clearTimeout(estimateTimerRef.current);
@@ -238,9 +317,9 @@ export const App: React.FC = () => {
     return () => {
       if (estimateTimerRef.current) window.clearTimeout(estimateTimerRef.current);
     };
-  }, [imageMeta, preset, cropState, exportSettings]);
+  }, [activePhoto, imageMeta, preset, cropState, exportSettings]);
 
-  // Generate rendered blob helper
+  // Generate rendered blob helper for active photo
   const getRenderedBlob = async (): Promise<{ blob: Blob; filename: string } | null> => {
     if (!imageMeta) return null;
     const dims = calculateTargetDimensions(preset, imageMeta, cropState.rotation);
@@ -276,7 +355,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Direct file download
+  // Direct single file download
   const handleExportDownload = async () => {
     if (!imageMeta) return;
 
@@ -291,6 +370,33 @@ export const App: React.FC = () => {
       addToast('error', `Błąd pobierania: ${err.message || 'Nieznany błąd'}`);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // Bulk Export All Photos in Batch (ZIP / Multi-Share)
+  const handleExportBatch = async () => {
+    if (photos.length === 0) return;
+
+    setIsExporting(true);
+    setBatchProgress({ current: 1, total: photos.length });
+
+    try {
+      const res = await exportBatchPhotos(photos, exportSettings, (current, total) => {
+        setBatchProgress({ current, total });
+      });
+
+      if (res.success) {
+        if (res.totalBytes > 0) {
+          addToast('success', `Wyeksportowano ZIP: ${res.count} zdjęć (${formatBytes(res.totalBytes)})`);
+        } else {
+          addToast('success', `Pomyślnie udostępniono ${res.count} zdjęć!`);
+        }
+      }
+    } catch (err: any) {
+      addToast('error', `Błąd eksportu serii: ${err.message || 'Nieznany błąd'}`);
+    } finally {
+      setIsExporting(false);
+      setBatchProgress(null);
     }
   };
 
@@ -331,19 +437,20 @@ export const App: React.FC = () => {
       <input
         id="file-upload-start"
         type="file"
+        multiple
         accept="image/*"
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
-            processFile(e.target.files[0]);
+            processFiles(e.target.files);
           }
         }}
         className="hidden"
       />
 
       {/* Main Content Area */}
-      {!imageMeta ? (
+      {photos.length === 0 || !imageMeta ? (
         <DropZone
-          onFileSelected={processFile}
+          onFilesSelected={processFiles}
           isDragging={isDragging}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -352,26 +459,39 @@ export const App: React.FC = () => {
         />
       ) : (
         <main className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden pl-[max(env(safe-area-inset-left),0px)] pr-[max(env(safe-area-inset-right),0px)]">
-          {/* Left / Center: Interactive Canvas Studio Viewport */}
-          <CropViewport
-            imageMeta={imageMeta}
-            preset={preset}
-            cropState={cropState}
-            onCropChange={setCropState}
-            gridSettings={gridSettings}
-            onGridSettingsChange={setGridSettings}
-          />
+          {/* Left / Center: Interactive Canvas Studio Viewport + Filmstrip */}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
+            {/* Filmstrip Carousel */}
+            <PhotoFilmstrip
+              photos={photos}
+              activeIndex={activePhotoIndex}
+              onSelectPhoto={(idx) => setActivePhotoIndex(idx)}
+              onRemovePhoto={handleRemovePhoto}
+              onAddMore={(files) => processFiles(files)}
+              onApplyPresetToAll={handleApplyPresetToAll}
+            />
+
+            {/* Interactive Crop Viewport */}
+            <CropViewport
+              imageMeta={imageMeta}
+              preset={preset}
+              cropState={cropState}
+              onCropChange={updateActiveCropState}
+              gridSettings={gridSettings}
+              onGridSettingsChange={setGridSettings}
+            />
+          </div>
 
           {/* DESKTOP Side Inspector */}
           <aside className="hidden lg:flex w-96 xl:w-[400px] bg-ios-card/80 backdrop-blur-2xl border-l border-white/10 p-5 overflow-y-auto max-h-[calc(100dvh-3.5rem)] flex-col gap-4 shrink-0 pb-[max(env(safe-area-inset-bottom),1rem)]">
             <PresetSelector
               selectedPresetId={preset.id}
-              onSelectPreset={(newPreset) => setPreset(newPreset)}
+              onSelectPreset={handleSelectPreset}
             />
 
             <BackgroundControls
               cropState={cropState}
-              onCropChange={setCropState}
+              onCropChange={updateActiveCropState}
             />
 
             <ExportToolbar
@@ -379,9 +499,12 @@ export const App: React.FC = () => {
               onSettingsChange={setExportSettings}
               stats={exportStats}
               preset={preset}
+              totalPhotos={photos.length}
               isExporting={isExporting}
+              batchProgress={batchProgress}
               onExportGallery={handleExportGallery}
               onExportDownload={handleExportDownload}
+              onExportBatch={handleExportBatch}
             />
           </aside>
 
@@ -391,14 +514,14 @@ export const App: React.FC = () => {
               {activeMobileMode === 'aspect' && (
                 <PresetSelector
                   selectedPresetId={preset.id}
-                  onSelectPreset={(newPreset) => setPreset(newPreset)}
+                  onSelectPreset={handleSelectPreset}
                 />
               )}
 
               {activeMobileMode === 'background' && (
                 <BackgroundControls
                   cropState={cropState}
-                  onCropChange={setCropState}
+                  onCropChange={updateActiveCropState}
                 />
               )}
 
@@ -408,9 +531,12 @@ export const App: React.FC = () => {
                   onSettingsChange={setExportSettings}
                   stats={exportStats}
                   preset={preset}
+                  totalPhotos={photos.length}
                   isExporting={isExporting}
+                  batchProgress={batchProgress}
                   onExportGallery={handleExportGallery}
                   onExportDownload={handleExportDownload}
+                  onExportBatch={handleExportBatch}
                 />
               )}
             </div>

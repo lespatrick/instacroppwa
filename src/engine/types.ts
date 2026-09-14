@@ -10,7 +10,7 @@ export interface InstagramPreset {
   id: InstagramPresetKey;
   label: string;
   subLabel: string;
-  aspectRatio: number; // width / height, or null if dynamic (original)
+  aspectRatio: number; // width / height, or dynamic
   ratioText: string;
   recommendedWidth: number;
   recommendedHeight: number;
@@ -19,13 +19,13 @@ export interface InstagramPreset {
   iconType: 'portrait' | 'square' | 'landscape' | 'story' | 'original';
 }
 
-export type FitMode = 'cover' | 'fit'; // cover = crop edges, fit = add letterbox/pillarbox background
+export type FitMode = 'cover' | 'fit';
 
 export type BackgroundStyle = 'black' | 'white' | 'dominant' | 'blur' | 'custom';
 
 export interface CropState {
   zoom: number;            // 1.0 to 4.0
-  pan: { x: number; y: number }; // normalized or pixel offset in canvas space
+  pan: { x: number; y: number };
   rotation: number;        // 0, 90, 180, 270 deg
   flipH: boolean;          // horizontal flip
   flipV: boolean;          // vertical flip
@@ -37,7 +37,7 @@ export interface CropState {
 
 export interface GridSettings {
   showRuleOfThirds: boolean;
-  showProfileGridPreview: boolean; // 1:1 center cut overlay
+  showProfileGridPreview: boolean;
 }
 
 export interface ExportSettings {
@@ -56,6 +56,13 @@ export interface LoadedImageMeta {
   aspectRatio: number;
   sizeBytes: number;
   fileType: string;
+}
+
+export interface PhotoItem {
+  id: string;
+  meta: LoadedImageMeta;
+  cropState: CropState;
+  preset: InstagramPreset;
 }
 
 export interface ExportStats {

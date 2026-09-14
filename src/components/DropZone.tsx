@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 interface DropZoneProps {
-  onFileSelected: (file: File) => void;
+  onFilesSelected: (files: FileList | File[]) => void;
   isDragging: boolean;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
@@ -17,7 +17,7 @@ interface DropZoneProps {
 }
 
 export const DropZone: React.FC<DropZoneProps> = ({
-  onFileSelected,
+  onFilesSelected,
   isDragging,
   onDragOver,
   onDragLeave,
@@ -32,7 +32,7 @@ export const DropZone: React.FC<DropZoneProps> = ({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      onFileSelected(e.target.files[0]);
+      onFilesSelected(e.target.files);
     }
   };
 
@@ -48,6 +48,7 @@ export const DropZone: React.FC<DropZoneProps> = ({
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept="image/*"
         onChange={handleInputChange}
         className="hidden"

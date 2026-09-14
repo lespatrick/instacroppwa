@@ -3,67 +3,89 @@ import type { LoadedImageMeta } from '../engine/types';
 
 interface UseImageLoaderOptions {
   onError: (message: string) => void;
-  onSuccess?: (meta: LoadedImageMeta) => void;
+  onSuccess?: (metaList: LoadedImageMeta[]) => void;
 }
 
 export function useImageLoader({ onError, onSuccess }: UseImageLoaderOptions) {
-  const [imageMeta, setImageMeta] = useState<LoadedImageMeta | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   
-  // Keep track of active object URL for revocation
-  const activeUrlRef = useRef<string | null>(null);
+  // Track all active object URLs for clean revocation
+  const activeUrlsRef = useRef<Set<string>>(new Set());
 
-  const cleanupActiveUrl = useCallback(() => {
-    if (activeUrlRef.current) {
-      URL.revokeObjectURL(activeUrlRef.current);
-      activeUrlRef.current = null;
+  const revokeUrl = useCallback((url: string) => {
+    if (activeUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      activeUrlsRef.current.delete(url);
     }
   }, []);
 
-  const processFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      onError(`Niewspierany format pliku (${file.type || 'nieznany'}). Wybierz plik graficzny (JPG, PNG, WebP, HEIC itp.).`);
+  const cleanupAllUrls = useCallback(() => {
+    activeUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    activeUrlsRef.current.clear();
+  }, []);
+
+  const loadSingleImage = async (file: File): Promise<LoadedImageMeta> => {
+    const objectUrl = URL.createObjectURL(file);
+    activeUrlsRef.current.add(objectUrl);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        activeUrlsRef.current.delete(objectUrl);
+        reject(new Error(`Nie udało się wczytać pliku: ${file.name}`));
+      };
+      img.src = objectUrl;
+    });
+
+    return {
+      element: img,
+      src: objectUrl,
+      name: file.name,
+      originalWidth: img.naturalWidth,
+      originalHeight: img.naturalHeight,
+      aspectRatio: img.naturalWidth / img.naturalHeight,
+      sizeBytes: file.size,
+      fileType: file.type,
+    };
+  };
+
+  const processFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    
+    if (fileArray.length === 0) {
+      onError('Wybierz prawidłowe pliki graficzne (JPG, PNG, WebP, HEIC itp.).');
       return;
     }
 
     setIsLoading(true);
-    cleanupActiveUrl();
 
     try {
-      const objectUrl = URL.createObjectURL(file);
-      activeUrlRef.current = objectUrl;
+      const loadedList: LoadedImageMeta[] = [];
+      for (const file of fileArray) {
+        try {
+          const meta = await loadSingleImage(file);
+          loadedList.push(meta);
+        } catch (err: any) {
+          console.warn(err.message);
+        }
+      }
 
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (loadedList.length === 0) {
+        throw new Error('Żadne ze wskazanych zdjęć nie mogło zostać załadowane.');
+      }
 
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Nie udało się załadować pliku graficznego. Plik może być uszkodzony.'));
-        img.src = objectUrl;
-      });
-
-      const meta: LoadedImageMeta = {
-        element: img,
-        src: objectUrl,
-        name: file.name,
-        originalWidth: img.naturalWidth,
-        originalHeight: img.naturalHeight,
-        aspectRatio: img.naturalWidth / img.naturalHeight,
-        sizeBytes: file.size,
-        fileType: file.type,
-      };
-
-      setImageMeta(meta);
-      if (onSuccess) onSuccess(meta);
+      if (onSuccess) onSuccess(loadedList);
     } catch (err: any) {
-      onError(err.message || 'Wystąpił błąd podczas wczytywania zdjęcia.');
-      cleanupActiveUrl();
-      setImageMeta(null);
+      onError(err.message || 'Wystąpił błąd podczas wczytywania zdjęć.');
     } finally {
       setIsLoading(false);
     }
-  }, [cleanupActiveUrl, onError, onSuccess]);
+  }, [onError, onSuccess]);
 
   // Handle global paste (Cmd/Ctrl + V)
   useEffect(() => {
@@ -71,23 +93,24 @@ export function useImageLoader({ onError, onSuccess }: UseImageLoaderOptions) {
       const items = e.clipboardData?.items;
       if (!items) return;
 
+      const pastedFiles: File[] = [];
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.startsWith('image/')) {
           const file = items[i].getAsFile();
-          if (file) {
-            e.preventDefault();
-            processFile(file);
-            break;
-          }
+          if (file) pastedFiles.push(file);
         }
+      }
+
+      if (pastedFiles.length > 0) {
+        e.preventDefault();
+        processFiles(pastedFiles);
       }
     };
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [processFile]);
+  }, [processFiles]);
 
-  // Drag & drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -108,22 +131,16 @@ export function useImageLoader({ onError, onSuccess }: UseImageLoaderOptions) {
     setIsDragging(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      processFile(file);
+      processFiles(e.dataTransfer.files);
     }
-  }, [processFile]);
-
-  const clearImage = useCallback(() => {
-    cleanupActiveUrl();
-    setImageMeta(null);
-  }, [cleanupActiveUrl]);
+  }, [processFiles]);
 
   return {
-    imageMeta,
     isLoading,
     isDragging,
-    processFile,
-    clearImage,
+    processFiles,
+    revokeUrl,
+    cleanupAllUrls,
     handleDragOver,
     handleDragLeave,
     handleDrop,
