@@ -12,9 +12,9 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
   onSelectPreset,
 }) => {
   return (
-    <div className="w-full flex items-center justify-center">
-      {/* Simple Text Carousel (Camera-like mode picker) */}
-      <div className="flex items-center gap-5 sm:gap-6 overflow-x-auto no-scrollbar py-2 px-4 select-none">
+    <div className="w-full flex items-center justify-center py-0.5">
+      {/* Sleek, minimal iOS camera-style ticker */}
+      <div className="flex items-center gap-4 sm:gap-5 overflow-x-auto no-scrollbar px-3 py-1 select-none">
         {INSTAGRAM_PRESETS.map((preset) => {
           const isSelected = selectedPresetId === preset.id;
           
@@ -22,18 +22,16 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
             <button
               key={preset.id}
               onClick={() => onSelectPreset(preset)}
-              className={`flex-shrink-0 cursor-pointer transition-all duration-200 text-center flex flex-col items-center gap-0.5 bg-transparent border-none p-0 focus:outline-none active:scale-95 ${
+              className={`flex-shrink-0 cursor-pointer transition-all duration-150 text-center flex flex-col items-center bg-transparent border-none p-0 focus:outline-none active:scale-95 ${
                 isSelected
-                  ? 'text-white scale-105 font-bold tracking-tight'
-                  : 'text-white/40 hover:text-white/70 font-medium'
+                  ? 'text-white font-semibold'
+                  : 'text-white/30 hover:text-white/60 font-normal'
               }`}
             >
-              <span className="text-[13px] sm:text-[14px]">
+              <span className={`text-[11px] sm:text-xs tracking-wider transition-colors ${isSelected ? 'text-white drop-shadow-[0_1px_2px_rgba(255,255,255,0.2)]' : 'text-white/35'}`}>
                 {preset.ratioText}
               </span>
-              <span className={`text-[9px] uppercase tracking-wider font-mono ${isSelected ? 'text-white/80' : 'text-white/25'}`}>
-                {preset.label}
-              </span>
+              <span className={`w-1 h-1 rounded-full mt-0.5 transition-all ${isSelected ? 'bg-white' : 'bg-transparent'}`} />
             </button>
           );
         })}
