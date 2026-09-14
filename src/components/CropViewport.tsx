@@ -99,16 +99,43 @@ export const CropViewport: React.FC<CropViewportProps> = ({
     }
   }, [cropState.fitMode, cropState.rotation, preset.id]);
 
-  // Render canvas on state change
+  // Optimized Render canvas with requestAnimationFrame & screen-scaled pixel density (High 60/120fps performance on mobile Safari/iOS)
   useEffect(() => {
-    if (!canvasRef.current || !imageMeta.element) return;
-    renderProcessedCanvas(
-      canvasRef.current,
-      imageMeta.element,
-      dimensions,
-      cropState
-    );
-  }, [imageMeta, dimensions, cropState]);
+    if (!canvasRef.current || !imageMeta.element || displayBox.width <= 0) return;
+
+    let animFrameId: number;
+    const canvas = canvasRef.current;
+    
+    // Scale viewport canvas to physical retina screen resolution rather than massive 4K Instagram canvas
+    const dpr = Math.min(window.devicePixelRatio || 2, 2.5);
+    const renderDims = {
+      width: Math.round(displayBox.width * dpr),
+      height: Math.round(displayBox.height * dpr),
+    };
+
+    // Fast scale ratio between Instagram target size and visual preview canvas
+    const previewScaleRatio = renderDims.width / dimensions.width;
+    const previewCropState: CropState = {
+      ...cropState,
+      pan: {
+        x: cropState.pan.x * previewScaleRatio,
+        y: cropState.pan.y * previewScaleRatio,
+      },
+    };
+
+    animFrameId = requestAnimationFrame(() => {
+      renderProcessedCanvas(
+        canvas,
+        imageMeta.element,
+        renderDims,
+        previewCropState
+      );
+    });
+
+    return () => {
+      cancelAnimationFrame(animFrameId);
+    };
+  }, [imageMeta, dimensions, displayBox, cropState]);
 
   // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -143,7 +170,7 @@ export const CropViewport: React.FC<CropViewportProps> = ({
 
   useEffect(() => {
     if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mousemove', handleMouseMove, { passive: true });
       window.addEventListener('mouseup', handleMouseUp);
     }
     return () => {
